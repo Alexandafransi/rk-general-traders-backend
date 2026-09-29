@@ -67,12 +67,29 @@ WSGI_APPLICATION = "config.wsgi.application"
 
 AUTH_USER_MODEL = "accounts.User"
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": os.environ.get("DJANGO_DB_PATH", BASE_DIR / "db.sqlite3"),
+# Postgres when POSTGRES_HOST is set — that's the shared database both the
+# server and local development talk to, so the two never drift apart. Without
+# it we fall back to a local SQLite file, which is the escape hatch for working
+# offline or against throwaway data.
+if os.environ.get("POSTGRES_HOST"):
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.environ.get("POSTGRES_DB", "rkgt"),
+            "USER": os.environ.get("POSTGRES_USER", "rkgt"),
+            "PASSWORD": os.environ.get("POSTGRES_PASSWORD", ""),
+            "HOST": os.environ["POSTGRES_HOST"],
+            "PORT": os.environ.get("POSTGRES_PORT", "5432"),
+            "CONN_MAX_AGE": 60,
+        }
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": os.environ.get("DJANGO_DB_PATH", BASE_DIR / "db.sqlite3"),
+        }
+    }
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -118,6 +135,24 @@ CORS_ALLOWED_ORIGINS = [
     o.strip()
     for o in os.environ.get(
         "DJANGO_CORS_ALLOWED_ORIGINS",
+        "http://localhost:3000,http://localhost:3411,http://localhost:3500",
+    ).split(",")
+    if o.strip()
+]
+
+# The Next.js reverse proxy forwards /admin/ POSTs to this backend, so the
+# browser's Origin header (the single Next.js origin, e.g. localhost:3500)
+# never matches the request's actual Host (backend:8000) as CSRF's
+# same-origin check expects — without this, admin login always 403s.
+# Behind the droplet's Traefik, TLS terminates at the proxy — without this,
+# request.is_secure() is False, Django computes its origin as http:// and
+# every https POST (admin login included) fails CSRF with a 403.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+CSRF_TRUSTED_ORIGINS = [
+    o.strip()
+    for o in os.environ.get(
+        "DJANGO_CSRF_TRUSTED_ORIGINS",
         "http://localhost:3000,http://localhost:3411,http://localhost:3500",
     ).split(",")
     if o.strip()
