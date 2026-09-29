@@ -1,0 +1,82 @@
+# Deploys rk-general-traders-backend (+ its Postgres) to the shared droplet.
+#
+# The droplet's Traefik reverse proxy and "proxy" docker network are owned
+# by other apps' deploys (see chatbot_platform); this playbook only assumes
+# they exist and attaches to the proxy network.
+#
+# Required -e vars (the CI workflow passes all of them):
+#   image, ghcr_user, ghcr_token, env_file_path, domain
+#
+# Manual run:
+#   ansible-playbook deploy.yml -i inventory.ini --private-key ~/.ssh/deploy_key \
+#     -e image=ghcr.io/alexandafransi/rk-general-traders-backend:latest \
+#     -e ghcr_user=... -e ghcr_token=... \
+#     -e env_file_path=$(pwd)/prod.env -e domain=api.rk.kezmak.co.tz
+- name: Deploy rk-general-traders-backend
+  hosts: production
+  vars:
+    app_dir: /opt/rk-general-traders-backend
+    app_domain: "{{ domain | default('api.rk.kezmak.co.tz') }}"
+    # The frontend (rk.kezmak.co.tz) proxies /api, /admin and /static to the
+    # backend over the shared proxy network by container name — single-origin
+    # by design, so the browser mostly never talks to app_domain directly.
+    frontend_origin: https://rk.kezmak.co.tz
+
+  tasks:
+    - name: Ensure shared proxy network exists
+      ansible.builtin.shell: >
+        docker network inspect proxy >/dev/null 2>&1
+        || docker network create proxy
+      register: proxy_net
+      changed_when: proxy_net.stdout == ""
+
+    - name: Ensure app directory exists
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Write environment file
+      ansible.builtin.copy:
+        content: |
+          {{ lookup('file', env_file_path) }}
+          IMAGE={{ image }}
+        dest: "{{ app_dir }}/.env"
+        mode: "0600"
+
+    - name: Render docker-compose file
+      ansible.builtin.template:
+        src: templates/docker-compose.prod.yml.j2
+        dest: "{{ app_dir }}/docker-compose.yml"
+        mode: "0600"
+
+    - name: Log in to GitHub Container Registry
+      ansible.builtin.command:
+        cmd: docker login ghcr.io -u {{ ghcr_user }} --password-stdin
+        stdin: "{{ ghcr_token }}"
+      changed_when: false
+
+    - name: Pull the new image
+      ansible.builtin.command:
+        cmd: docker compose pull web
+        chdir: "{{ app_dir }}"
+      register: pull_out
+      changed_when: "'Downloaded' in pull_out.stderr or 'Pull complete' in pull_out.stderr"
+
+    - name: Start / restart services
+      ansible.builtin.command:
+        cmd: docker compose up -d
+        chdir: "{{ app_dir }}"
+      register: up_out
+      changed_when: "'Started' in up_out.stderr or 'Created' in up_out.stderr or 'Recreated' in up_out.stderr"
+
+    - name: Wait for backend to answer
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8015/admin/login/"
+        headers:
+          Host: "{{ app_domain }}"
+        status_code: [200]
+      register: health
+      retries: 30
+      delay: 10
+      until: health.status == 200

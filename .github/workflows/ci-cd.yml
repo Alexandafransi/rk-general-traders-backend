@@ -1,0 +1,93 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+env:
+  # ghcr.io requires lowercase (github.repository would give "Alexandafransi/...")
+  IMAGE: ghcr.io/alexandafransi/rk-general-traders-backend
+
+jobs:
+  # ── CI: Django system check (SQLite fallback — no services needed) ──
+  test:
+    runs-on: ubuntu-latest
+    env:
+      DJANGO_SECRET_KEY: ci-only-secret
+      DJANGO_DEBUG: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Django system check
+        run: python manage.py check
+
+  # ── Build the production image and push it to GitHub Container Registry ──
+  build:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Deploy to the shared droplet via Ansible ──
+  deploy:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ansible
+        run: pipx install ansible-core
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+      - name: Write production env file
+        working-directory: deploy/ansible
+        env:
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+        run: |
+          printf '%s' "$ENV_FILE" > prod.env
+          test -s prod.env || { echo "ENV_FILE secret is empty or missing"; exit 1; }
+      - name: Run deploy playbook
+        working-directory: deploy/ansible
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: "False"
+        run: |
+          ansible-playbook deploy.yml \
+            -i inventory.ini \
+            --private-key ~/.ssh/deploy_key \
+            -e image="${{ env.IMAGE }}:${{ github.sha }}" \
+            -e ghcr_user="${{ github.actor }}" \
+            -e ghcr_token="${{ secrets.GITHUB_TOKEN }}" \
+            -e env_file_path="$(pwd)/prod.env" \
+            -e domain="${{ vars.DOMAIN || 'api.rk.kezmak.co.tz' }}"

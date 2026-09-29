@@ -1,0 +1,50 @@
+# Rendered by Ansible — do not edit on the server, changes will be overwritten.
+services:
+  web:
+    image: ${IMAGE}
+    # Fixed name: the frontend (separate compose project) reaches this
+    # container as http://rk-backend:8000 over the shared proxy network.
+    container_name: rk-backend
+    restart: unless-stopped
+    env_file: .env
+    # Loopback only, for the deploy health check; public traffic comes
+    # through Traefik on the proxy network.
+    ports:
+      - "127.0.0.1:8015:8000"
+    networks:
+      - default
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.rk-api.rule=Host(`{{ app_domain }}`)
+      - traefik.http.routers.rk-api.entrypoints=websecure
+      - traefik.http.routers.rk-api.tls.certresolver=letsencrypt
+      - traefik.http.services.rk-api.loadbalancer.server.port=8000
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - rk_pgdata:/var/lib/postgresql/data
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+networks:
+  default:
+  proxy:
+    external: true
+
+volumes:
+  rk_pgdata:
