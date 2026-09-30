@@ -7,6 +7,7 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission
 ALLOWED_MODULES = [
     "dashboard", "branches", "jobs", "leads", "customers", "staff", "payroll",
     "finance", "sales", "purchases", "inventory", "expenses", "suppliers", "categories",
+    "payment_methods",
 ]
 
 

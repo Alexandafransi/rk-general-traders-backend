@@ -11,6 +11,7 @@ from .models import (
     InstallationJob,
     Lead,
     Payslip,
+    PaymentMethod,
     Product,
     Purchase,
     Sale,
@@ -167,6 +168,25 @@ class CategorySerializer(serializers.ModelSerializer):
         return obj.purchases.count()
 
 
+class PaymentMethodSerializer(serializers.ModelSerializer):
+    sales_count = serializers.SerializerMethodField()
+    purchases_count = serializers.SerializerMethodField()
+    expenses_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PaymentMethod
+        fields = ["id", "name", "sales_count", "purchases_count", "expenses_count", "created_at"]
+
+    def get_sales_count(self, obj):
+        return obj.sales.count()
+
+    def get_purchases_count(self, obj):
+        return obj.purchases.count()
+
+    def get_expenses_count(self, obj):
+        return obj.expenses.count()
+
+
 class ProductSerializer(serializers.ModelSerializer):
     branch = BranchSerializer(read_only=True)
     branch_id = serializers.PrimaryKeyRelatedField(
@@ -303,6 +323,10 @@ class PurchaseSerializer(serializers.ModelSerializer):
     category_id = serializers.PrimaryKeyRelatedField(
         queryset=Category.objects.all(), source="category", write_only=True, required=False, allow_null=True
     )
+    payment_method = PaymentMethodSerializer(read_only=True)
+    payment_method_id = serializers.PrimaryKeyRelatedField(
+        queryset=PaymentMethod.objects.all(), source="payment_method", write_only=True, required=False, allow_null=True
+    )
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     total_cost = serializers.ReadOnlyField()
 
@@ -310,7 +334,7 @@ class PurchaseSerializer(serializers.ModelSerializer):
         model = Purchase
         fields = [
             "id", "branch", "branch_id", "po_number", "supplier", "supplier_id", "product", "product_id", "item_name",
-            "category", "category_id", "quantity", "unit_cost", "total_cost",
+            "category", "category_id", "quantity", "unit_cost", "total_cost", "payment_method", "payment_method_id",
             "status", "status_display", "purchase_date", "created_at",
         ]
 
@@ -321,7 +345,10 @@ class ExpenseSerializer(serializers.ModelSerializer):
         queryset=Branch.objects.all(), source="branch", write_only=True, required=False, allow_null=True
     )
     category_display = serializers.CharField(source="get_category_display", read_only=True)
-    payment_method_display = serializers.CharField(source="get_payment_method_display", read_only=True)
+    payment_method = PaymentMethodSerializer(read_only=True)
+    payment_method_id = serializers.PrimaryKeyRelatedField(
+        queryset=PaymentMethod.objects.all(), source="payment_method", write_only=True, required=False, allow_null=True
+    )
     recorded_by = TechnicianSerializer(read_only=True)
     recorded_by_id = serializers.PrimaryKeyRelatedField(
         queryset=Technician.objects.all(), source="recorded_by", write_only=True, required=False, allow_null=True
@@ -331,7 +358,7 @@ class ExpenseSerializer(serializers.ModelSerializer):
         model = Expense
         fields = [
             "id", "branch", "branch_id", "category", "category_display", "description", "amount", "expense_date",
-            "payment_method", "payment_method_display", "recorded_by", "recorded_by_id", "created_at",
+            "payment_method", "payment_method_id", "recorded_by", "recorded_by_id", "created_at",
         ]
 
 
@@ -358,9 +385,13 @@ class SaleSerializer(serializers.ModelSerializer):
     )
     category_display = serializers.CharField(source="get_category_display", read_only=True)
     payment_status_display = serializers.CharField(source="get_payment_status_display", read_only=True)
-    payment_method_display = serializers.CharField(source="get_payment_method_display", read_only=True)
+    payment_method = PaymentMethodSerializer(read_only=True)
+    payment_method_id = serializers.PrimaryKeyRelatedField(
+        queryset=PaymentMethod.objects.all(), source="payment_method", write_only=True, required=False, allow_null=True
+    )
     amount = serializers.ReadOnlyField()
     balance_due = serializers.ReadOnlyField()
+    is_overdue = serializers.ReadOnlyField()
 
     class Meta:
         model = Sale
@@ -368,5 +399,5 @@ class SaleSerializer(serializers.ModelSerializer):
             "id", "branch", "branch_id", "invoice_number", "customer_name", "job", "job_id", "product", "product_id",
             "category", "category_display", "description", "quantity", "unit_price", "amount",
             "amount_paid", "balance_due", "payment_status", "payment_status_display",
-            "payment_method", "payment_method_display", "sale_date", "created_at",
+            "payment_method", "payment_method_id", "payment_due_date", "is_overdue", "sale_date", "created_at",
         ]

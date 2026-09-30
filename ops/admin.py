@@ -11,6 +11,7 @@ from .models import (
     InstallationJob,
     Lead,
     Payslip,
+    PaymentMethod,
     Product,
     Purchase,
     Sale,
@@ -110,6 +111,12 @@ class SupplierAdmin(admin.ModelAdmin):
 
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
+    list_display = ("name", "created_at")
+    search_fields = ("name",)
+
+
+@admin.register(PaymentMethod)
+class PaymentMethodAdmin(admin.ModelAdmin):
     list_display = ("name", "created_at")
     search_fields = ("name",)
 

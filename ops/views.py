@@ -18,6 +18,7 @@ from .models import (
     InstallationJob,
     Lead,
     Payslip,
+    PaymentMethod,
     Product,
     Purchase,
     Sale,
@@ -45,6 +46,7 @@ from .serializers import (
     InstallationJobSerializer,
     LeadSerializer,
     PayslipSerializer,
+    PaymentMethodSerializer,
     ProductSerializer,
     PurchaseSerializer,
     RoleSerializer,
@@ -296,7 +298,7 @@ class SupplierViewSet(AuditMixin, ModelViewSet):
 
 
 class PurchaseViewSet(AuditMixin, BranchFilteredMixin, ModelViewSet):
-    queryset = Purchase.objects.select_related("supplier", "product", "category", "branch").all()
+    queryset = Purchase.objects.select_related("supplier", "product", "category", "branch", "payment_method").all()
     serializer_class = PurchaseSerializer
     permission_classes = [ModulePermission("purchases")]
 
@@ -307,14 +309,21 @@ class CategoryViewSet(AuditMixin, ModelViewSet):
     permission_classes = [ReadOpenModulePermission("categories")]
 
 
+class PaymentMethodViewSet(AuditMixin, ModelViewSet):
+    audit_label = "Payment Method"
+    queryset = PaymentMethod.objects.all()
+    serializer_class = PaymentMethodSerializer
+    permission_classes = [ReadOpenModulePermission("payment_methods")]
+
+
 class ExpenseViewSet(AuditMixin, BranchFilteredMixin, ModelViewSet):
-    queryset = Expense.objects.select_related("recorded_by", "branch").all()
+    queryset = Expense.objects.select_related("recorded_by", "branch", "payment_method").all()
     serializer_class = ExpenseSerializer
     permission_classes = [ModulePermission("expenses")]
 
 
 class SaleViewSet(AuditMixin, BranchFilteredMixin, ModelViewSet):
-    queryset = Sale.objects.select_related("job", "product", "branch").all()
+    queryset = Sale.objects.select_related("job", "product", "branch", "payment_method").all()
     serializer_class = SaleSerializer
     permission_classes = [ModulePermission("sales")]
 
@@ -695,7 +704,7 @@ def purchases_summary(request):
     today = timezone.localdate()
     month_start = today.replace(day=1)
 
-    purchases = Purchase.objects.select_related("supplier", "product", "category", "branch").all()
+    purchases = Purchase.objects.select_related("supplier", "product", "category", "branch", "payment_method").all()
     branch_id = _branch_param(request)
     if branch_id:
         purchases = purchases.filter(branch_id=branch_id)
@@ -725,7 +734,7 @@ def expenses_summary(request):
     today = timezone.localdate()
     month_start = today.replace(day=1)
 
-    expenses = Expense.objects.select_related("recorded_by", "branch").all()
+    expenses = Expense.objects.select_related("recorded_by", "branch", "payment_method").all()
     branch_id = _branch_param(request)
     if branch_id:
         expenses = expenses.filter(branch_id=branch_id)
@@ -762,7 +771,7 @@ def sales_summary(request):
     today = timezone.localdate()
     month_start = today.replace(day=1)
 
-    sales = Sale.objects.select_related("job", "product", "branch").all()
+    sales = Sale.objects.select_related("job", "product", "branch", "payment_method").all()
     branch_id = _branch_param(request)
     if branch_id:
         sales = sales.filter(branch_id=branch_id)
@@ -821,9 +830,9 @@ def finance_summary(request):
     total_costs = payroll_total + purchases_total + expenses_total
     net_profit = revenue_total - total_costs
 
-    recent_purchases_qs = Purchase.objects.select_related("supplier")
-    recent_expenses_qs = Expense.objects.select_related("recorded_by")
-    recent_sales_qs = Sale.objects.select_related("job")
+    recent_purchases_qs = Purchase.objects.select_related("supplier", "payment_method")
+    recent_expenses_qs = Expense.objects.select_related("recorded_by", "payment_method")
+    recent_sales_qs = Sale.objects.select_related("job", "payment_method")
     if branch_id:
         recent_purchases_qs = recent_purchases_qs.filter(branch_id=branch_id)
         recent_expenses_qs = recent_expenses_qs.filter(branch_id=branch_id)

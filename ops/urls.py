@@ -19,6 +19,7 @@ router.register("sales", views.SaleViewSet)
 router.register("customers", views.CustomerViewSet)
 router.register("products", views.ProductViewSet)
 router.register("categories", views.CategoryViewSet)
+router.register("payment-methods", views.PaymentMethodViewSet)
 router.register("branches", views.BranchViewSet)
 router.register("audit-log", views.AuditLogViewSet)
 

@@ -5,7 +5,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from accounts.models import Role, User
-from ops.models import Branch, Category, Expense, InstallationJob, Lead, Payslip, Product, Purchase, Sale, Supplier, Technician, TodoItem
+from ops.models import Branch, Category, Expense, InstallationJob, Lead, Payslip, PaymentMethod, Product, Purchase, Sale, Supplier, Technician, TodoItem
 
 
 def month_start(d, months_back):
@@ -371,7 +371,10 @@ class Command(BaseCommand):
             (Expense.Category.OFFICE_SUPPLIES, "Voucher card printing", (25_000, 60_000)),
             (Expense.Category.OTHER, "Bank transaction fees", (5_000, 15_000)),
         ]
-        payment_methods = [c[0] for c in Expense.PaymentMethod.choices]
+        payment_methods = [
+            PaymentMethod.objects.get_or_create(name=name)[0]
+            for name in ["Cash", "Mobile Money", "Bank Transfer", "Card"]
+        ]
 
         expenses = []
         for months_back in (2, 1, 0):

@@ -1,3 +1,5 @@
+from datetime import date
+
 from django.db import models
 from django.db.models import F
 from django.db.models.signals import post_save
@@ -304,6 +306,21 @@ def _apply_stock_change(product_id, change, reason, reference="", note=""):
     StockMovement.objects.create(product_id=product_id, change=change, reason=reason, reference=reference, note=note)
 
 
+class PaymentMethod(models.Model):
+    """A way money changes hands (Cash, Mobile Money, Bank Transfer, Card, or
+    anything a superadmin/admin adds) — managed dynamically rather than a
+    fixed enum, shared across Sales, Purchases and Expenses."""
+
+    name = models.CharField(max_length=60, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
 class Purchase(models.Model):
     class Status(models.TextChoices):
         ORDERED = "ordered", "Ordered"
@@ -318,6 +335,9 @@ class Purchase(models.Model):
     category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True, related_name="purchases")
     quantity = models.PositiveIntegerField(default=1)
     unit_cost = models.DecimalField(max_digits=12, decimal_places=2)
+    payment_method = models.ForeignKey(
+        PaymentMethod, on_delete=models.SET_NULL, null=True, blank=True, related_name="purchases"
+    )
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.ORDERED)
     purchase_date = models.DateField()
     created_at = models.DateTimeField(auto_now_add=True)
@@ -376,18 +396,14 @@ class Expense(models.Model):
         OFFICE_SUPPLIES = "office_supplies", "Office Supplies"
         OTHER = "other", "Other"
 
-    class PaymentMethod(models.TextChoices):
-        CASH = "cash", "Cash"
-        MOBILE_MONEY = "mobile_money", "Mobile Money"
-        BANK_TRANSFER = "bank_transfer", "Bank Transfer"
-        CARD = "card", "Card"
-
     branch = models.ForeignKey(Branch, on_delete=models.SET_NULL, null=True, blank=True, related_name="expenses")
     category = models.CharField(max_length=20, choices=Category.choices, default=Category.OTHER)
     description = models.CharField(max_length=200)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     expense_date = models.DateField()
-    payment_method = models.CharField(max_length=16, choices=PaymentMethod.choices, default=PaymentMethod.CASH)
+    payment_method = models.ForeignKey(
+        PaymentMethod, on_delete=models.SET_NULL, null=True, blank=True, related_name="expenses"
+    )
     recorded_by = models.ForeignKey(
         Technician, on_delete=models.SET_NULL, null=True, blank=True, related_name="expenses"
     )
@@ -418,12 +434,6 @@ class Sale(models.Model):
         PRODUCT = "product_sale", "Product Sale"
         OTHER = "other", "Other"
 
-    class PaymentMethod(models.TextChoices):
-        CASH = "cash", "Cash"
-        MOBILE_MONEY = "mobile_money", "Mobile Money"
-        BANK_TRANSFER = "bank_transfer", "Bank Transfer"
-        CARD = "card", "Card"
-
     branch = models.ForeignKey(Branch, on_delete=models.SET_NULL, null=True, blank=True, related_name="sales")
     invoice_number = models.CharField(max_length=12, unique=True, editable=False)
     customer_name = models.CharField(max_length=120)
@@ -437,7 +447,13 @@ class Sale(models.Model):
     unit_price = models.DecimalField(max_digits=12, decimal_places=2)
     amount_paid = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     payment_status = models.CharField(max_length=8, choices=PaymentStatus.choices, default=PaymentStatus.UNPAID)
-    payment_method = models.CharField(max_length=16, choices=PaymentMethod.choices, default=PaymentMethod.CASH)
+    payment_method = models.ForeignKey(
+        PaymentMethod, on_delete=models.SET_NULL, null=True, blank=True, related_name="sales"
+    )
+    payment_due_date = models.DateField(
+        null=True, blank=True,
+        help_text="When the remaining balance is due in full (for partially paid sales).",
+    )
     sale_date = models.DateField()
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -454,6 +470,12 @@ class Sale(models.Model):
     @property
     def balance_due(self):
         return self.amount - self.amount_paid
+
+    @property
+    def is_overdue(self):
+        if not self.payment_due_date or self.balance_due <= 0:
+            return False
+        return self.payment_due_date < date.today()
 
     def save(self, *args, **kwargs):
         if not self.invoice_number:
